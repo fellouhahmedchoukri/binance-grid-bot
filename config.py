@@ -7,3 +7,6 @@ WEBHOOK_PASSPHRASE = "#1960AlGeR@+="
 
 # Mode test (True pour tester sans risque)
 TEST_MODE = True
+
+# Mot de passe du dashboard
+DASHBOARD_PASSWORD = "#1960AlGeR@+="
