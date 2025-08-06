@@ -6,3 +6,5 @@ python-dotenv==1.0.0
 streamlit==1.32.0
 plotly==5.22.0
 pandas==2.2.2
+ccxt==4.1.59
+gunicorn==21.2.0
