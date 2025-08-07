@@ -12,5 +12,7 @@ services:
         value: ton_api_secret_binance
       - key: WEBHOOK_PASSPHRASE
         value: "#1960AlGeR@+="
-      - key: PORT
-        value: 10000
+      - key: EXCHANGE_TYPE
+        value: spot
+      - key: TEST_MODE
+        value: true
