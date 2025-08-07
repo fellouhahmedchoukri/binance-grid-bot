@@ -1,4 +1,0 @@
-flask==2.3.2
-python-dotenv==1.0.0
-ccxt==4.1.59
-gunicorn==21.2.0
