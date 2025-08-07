@@ -4,7 +4,9 @@ services:
     env: python
     plan: free
     buildCommand: ""
-    startCommand: gunicorn app:app
+  
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+
     envVars:
       - key: API_KEY
         value: your_binance_api_key
