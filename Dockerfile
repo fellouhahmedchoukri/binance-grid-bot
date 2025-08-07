@@ -14,4 +14,4 @@ COPY . .
 EXPOSE ${PORT}
 
 # Démarre avec Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "app:app"]
+CMD gunicorn app:app --bind 0.0.0.0:$PORT
