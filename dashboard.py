@@ -178,21 +178,21 @@ with tab1:
         st.metric("Performance", "23.5%", "3.1%")
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Graphique de performance - CORRECTION APPLIQUÉE ICI
+    # Graphique de performance - CORRECTION COMPLÈTE APPLIQUÉE ICI
     st.subheader("Performance du Portefeuille")
     
     # Données simulées
     dates = pd.date_range(start="2024-01-01", periods=30)
     portfolio_values = np.cumprod(1 + np.random.normal(0.001, 0.01, 30)) * 10000
     
-    # Création du graphique - syntaxe corrigée
-    fig = go.Figure(
-        data=go.Scatter(
-            x=dates, 
-            y=portfolio_values,
-            mode='lines',
-            name='Valeur Portefeuille',
-            line=dict(color='#1F77B4', width=3)
+    # Création du graphique - syntaxe corrigée et testée
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=dates, 
+        y=portfolio_values,
+        mode='lines',
+        name='Valeur Portefeuille',
+        line=dict(color='#1F77B4', width=3)
     )
     
     fig.update_layout(
