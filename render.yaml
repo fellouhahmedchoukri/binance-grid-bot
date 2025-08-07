@@ -4,19 +4,13 @@ services:
     env: python
     plan: free
     buildCommand: ""
-  
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
-
     envVars:
-      - key: API_KEY
-        value: your_binance_api_key
-      - key: API_SECRET
-        value: your_binance_api_secret
+      - key: BINANCE_API_KEY
+        value: ton_api_key_binance
+      - key: BINANCE_API_SECRET
+        value: ton_api_secret_binance
       - key: WEBHOOK_PASSPHRASE
         value: "#1960AlGeR@+="
-      - key: EXCHANGE_TYPE
-        value: spot
-      - key: TEST_MODE
-        value: true
       - key: PORT
         value: 10000
