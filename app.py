@@ -82,12 +82,17 @@ if __name__ == "__main__":
         debug=(os.getenv("FLASK_ENV") == "development")
     )
 
-
 #AJOUTER POUR DASHBOARD
 elif action == "balance":
-    balance = exchange.fetch_balance()
-    return jsonify(balance), 200
+    try:
+        balance = exchange.fetch_balance()
+        return jsonify({"success": True, "balance": balance}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 elif action == "orders":
-    orders = exchange.fetch_open_orders(symbol)
-    return jsonify(orders), 200
+    try:
+        orders = exchange.fetch_open_orders(symbol)
+        return jsonify({"success": True, "orders": orders}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
