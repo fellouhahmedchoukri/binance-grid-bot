@@ -1,4 +1,3 @@
-
 import requests
 
 def send_webhook(api_url, passphrase, symbol, action, high, low, steps):
