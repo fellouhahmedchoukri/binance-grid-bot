@@ -81,3 +81,13 @@ if __name__ == "__main__":
         port=config.PORT,
         debug=(os.getenv("FLASK_ENV") == "development")
     )
+
+
+#AJOUTER POUR DASHBOARD
+elif action == "balance":
+    balance = exchange.fetch_balance()
+    return jsonify(balance), 200
+
+elif action == "orders":
+    orders = exchange.fetch_open_orders(symbol)
+    return jsonify(orders), 200
