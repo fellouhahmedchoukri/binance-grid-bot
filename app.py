@@ -1,98 +1,78 @@
-# app.py
-
 import os
-import json
-import logging
 from flask import Flask, request, jsonify
-from dotenv import load_dotenv
-
-import config
-import exchange_utils
-
-# Charge .env
-load_dotenv()
-
-# Configuration du logger
-logging.basicConfig(
-    level=getattr(logging, config.LOG_LEVEL),
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+import ccxt
 
 app = Flask(__name__)
 
-@app.route("/", methods=["GET"])
-def home():
-    return "<h1>Binance Grid Bot</h1><p>Service opérationnel</p>"
+# Charge tes clés Binance depuis les variables d’environnement
+API_KEY = os.environ.get("BINANCE_API_KEY")
+API_SECRET = os.environ.get("BINANCE_API_SECRET")
+PASSPHRASE = os.environ.get("WEBHOOK_PASSPHRASE")
+
+# Initialise l’exchange CCXT
+exchange = ccxt.binance({
+    "apiKey": API_KEY,
+    "secret": API_SECRET,
+    "enableRateLimit": True,
+})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"success": False, "message": "No JSON payload"}), 400
+
+    # Vérifie la passphrase
+    if data.get("passphrase") != PASSPHRASE:
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
+    symbol = data.get("symbol")
+    action = data.get("action")
+
     try:
-        data = request.get_json(force=True)
-        logger.info(f"Payload reçu : {json.dumps(data)}")
-
-        # Vérification de la passphrase
-        if data.get("passphrase") != config.WEBHOOK_PASSPHRASE:
-            logger.warning("Passphrase invalide")
-            return jsonify({"success": False, "message": "Passphrase invalide"}), 401
-
-        # Champs indispensables
-        symbol = data.get("symbol")
-        action = data.get("action")
-        if not symbol or not action:
-            return jsonify({"success": False, "message": "symbol et action requis"}), 400
-
-        symbol = symbol.replace(":", "/")  # ex. "BTC:USDT" → "BTC/USDT"
-        exchange = exchange_utils.init_exchange()
-
+        # 1. Entrée en grille
         if action == "entry":
-            if "high_price" not in data or "low_price" not in data:
-                return jsonify({
-                    "success": False,
-                    "message": "high_price et low_price requis pour entry"
-                }), 400
+            high_price = float(data["high_price"])
+            low_price = float(data["low_price"])
+            steps = int(data["steps"])
+            # Ta logique de création de grille ici…
+            # Exemple simplifié :
+            orders = build_grid_and_place_orders(symbol, low_price, high_price, steps)
+            return jsonify({"success": True, "orders": orders}), 200
 
-            result = exchange_utils.place_grid_orders(
-                exchange,
-                symbol,
-                data["high_price"],
-                data["low_price"],
-                steps=data.get("steps", config.GRID_STEPS)
-            )
-            return jsonify(result), 200
+        # 2. Sortie partielle / totale
+        elif action == "exit":
+            # Ta logique d’exit ici…
+            result = close_grid_positions(symbol)
+            return jsonify({"success": True, "result": result}), 200
 
-        elif action in ("exit", "grid_destroyed"):
-            result = exchange_utils.close_all_positions(exchange, symbol)
-            return jsonify(result), 200
+        # 3. Destruction de grille manuelle
+        elif action == "grid_destroyed":
+            # Ta logique de destruction de grille ici…
+            result = destroy_grid(symbol)
+            return jsonify({"success": True, "result": result}), 200
 
+        # 4. Récupérer le solde
+        elif action == "balance":
+            balance = exchange.fetch_balance()
+            return jsonify({"success": True, "balance": balance}), 200
+
+        # 5. Récupérer les ordres ouverts
+        elif action == "orders":
+            if not symbol:
+                return jsonify({"success": False, "message": "symbol is required for orders"}), 400
+            orders = exchange.fetch_open_orders(symbol)
+            return jsonify({"success": True, "orders": orders}), 200
+
+        # Action inconnue
         else:
-            return jsonify({
-                "success": False,
-                "message": f"Action non reconnue: {action}"
-            }), 400
+            return jsonify({"success": False, "message": f"Unknown action `{action}`"}), 400
 
     except Exception as e:
-        logger.exception("Erreur serveur")
+        # Logue l’erreur en prod, ici on renvoie juste le message
         return jsonify({"success": False, "message": str(e)}), 500
+
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=config.PORT,
-        debug=(os.getenv("FLASK_ENV") == "development")
-    )
-
-#AJOUTER POUR DASHBOARD
-elif action == "balance":
-    try:
-        balance = exchange.fetch_balance()
-        return jsonify({"success": True, "balance": balance}), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-elif action == "orders":
-    try:
-        orders = exchange.fetch_open_orders(symbol)
-        return jsonify({"success": True, "orders": orders}), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
