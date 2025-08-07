@@ -9,6 +9,11 @@ import exchange_utils
 import json
 import requests
 import os
+import logging
+
+# Configuration du logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Configuration de la page
 st.set_page_config(
@@ -48,16 +53,17 @@ st.markdown("""
     .negative {
         color: #FF5252;
     }
+    .warning-banner {
+        background-color: #FF9800;
+        color: white;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        text-align: center;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
-
-# Initialisation de l'API Binance
-try:
-    exchange = exchange_utils.init_exchange()
-    st.session_state.exchange = exchange
-except Exception as e:
-    st.error(f"Erreur de connexion à Binance: {str(e)}")
-    st.stop()
 
 # Titre du dashboard
 st.title("📊 Binance Grid Bot Dashboard - The Quant Science")
@@ -71,6 +77,18 @@ if 'authenticated' not in st.session_state:
     else:
         if password != "":
             st.error("Mot de passe incorrect")
+        st.stop()
+
+# Initialisation de l'API Binance
+if 'exchange' not in st.session_state:
+    try:
+        st.session_state.exchange = exchange_utils.init_exchange()
+        if config.TEST_MODE:
+            st.sidebar.warning("MODE TEST ACTIVÉ - Transactions simulées")
+        else:
+            st.sidebar.error("MODE PRODUCTION - Transactions réelles")
+    except Exception as e:
+        st.error(f"Erreur de connexion à Binance: {str(e)}")
         st.stop()
 
 # Fonctions principales
@@ -91,6 +109,22 @@ def fetch_open_orders(symbol="BTC/USDT"):
         st.error(f"Erreur de récupération des ordres: {str(e)}")
         return []
 
+def fetch_position_history():
+    """Récupère l'historique des positions"""
+    try:
+        with open('position_history.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+def add_position_to_history(position):
+    """Ajoute une position à l'historique"""
+    history = fetch_position_history()
+    position['timestamp'] = datetime.now().isoformat()
+    history.append(position)
+    with open('position_history.json', 'w') as f:
+        json.dump(history, f)
+
 # Sidebar - Contrôle du bot
 st.sidebar.header("⚙️ Contrôle du Bot")
 
@@ -100,12 +134,15 @@ if st.sidebar.button("⏸️ Suspendre le Bot", key="pause_bot"):
     st.sidebar.warning("Fonctionnalité à implémenter")
 
 if st.sidebar.button("🔴 Arrêter d'Urgence", key="emergency_stop", type="primary"):
-    exchange_utils.close_all_positions(exchange, "BTC/USDT")
-    st.sidebar.error("Toutes les positions ont été fermées!")
+    try:
+        exchange_utils.close_all_positions(st.session_state.exchange, "BTC/USDT")
+        st.sidebar.success("Toutes les positions ont été fermées!")
+    except Exception as e:
+        st.sidebar.error(f"Erreur: {str(e)}")
 
 # Section de configuration
 st.sidebar.subheader("⚡ Configuration Rapide")
-symbol = st.sidebar.selectbox("Paire de trading", ["BTC/USDT", "ETH/USDT", "BNB/USDT"])
+symbol = st.sidebar.selectbox("Paire de trading", ["BTC/USDT", "ETH/USDT", "DOGE/USDT", "BNB/USDT"])
 grid_range = st.sidebar.slider("Plage de la grille (%)", 5, 30, 10)
 risk_per_trade = st.sidebar.slider("Risque par trade (%)", 1, 10, 2)
 
@@ -141,20 +178,21 @@ with tab1:
         st.metric("Performance", "23.5%", "3.1%")
         st.markdown('</div>', unsafe_allow_html=True)
     
- # Graphique de performance - CORRECTION APPLIQUÉE ICI
+    # Graphique de performance - CORRECTION APPLIQUÉE ICI
     st.subheader("Performance du Portefeuille")
     
     # Données simulées
     dates = pd.date_range(start="2024-01-01", periods=30)
     portfolio_values = np.cumprod(1 + np.random.normal(0.001, 0.01, 30)) * 10000
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=dates, 
-        y=portfolio_values,
-        mode='lines',
-        name='Valeur Portefeuille',
-        line=dict(color='#1F77B4', width=3)
+    # Création du graphique - syntaxe corrigée
+    fig = go.Figure(
+        data=go.Scatter(
+            x=dates, 
+            y=portfolio_values,
+            mode='lines',
+            name='Valeur Portefeuille',
+            line=dict(color='#1F77B4', width=3)
     )
     
     fig.update_layout(
@@ -170,26 +208,30 @@ with tab1:
     st.subheader("Grille de Prix Actuelle")
     
     # Données simulées
-    dates = pd.date_range(start="2024-01-01", periods=30)
-    portfolio_values = np.cumprod(1 + np.random.normal(0.001, 0.01, 30)) * 10000
+    grid_levels = {
+        'Niveau': ['Grid 1', 'Grid 2', 'Grid 3', 'Grid 4', 'Grid 5'],
+        'Prix': [48500, 47200, 45900, 44600, 43300],
+        'État': ['Actif', 'Actif', 'En attente', 'En attente', 'En attente']
+    }
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=dates, 
-        y=portfolio_values,
-        mode='lines',
-        name='Valeur Portefeuille',
-        line=dict(color='#1F77B4', width=3)
-    )  # CORRECTION: Parenthèse correctement fermée
+    df_grid = pd.DataFrame(grid_levels)
+    df_grid['Différence'] = df_grid['Prix'].diff(-1).fillna(0)
+    df_grid['Différence'] = df_grid['Différence'].apply(lambda x: f"{abs(x):.0f}" if x != 0 else "")
     
-    fig.update_layout(
-        template='plotly_dark',
-        xaxis_title='Date',
-        yaxis_title='Valeur ($)',
-        height=400
+    st.dataframe(
+        df_grid,
+        column_config={
+            "Prix": st.column_config.NumberColumn(format="$ %.0f"),
+            "Différence": st.column_config.TextColumn("Différence"),
+            "État": st.column_config.SelectboxColumn(
+                options=["Actif", "En attente", "Désactivé"]
+            )
+        },
+        hide_index=True,
+        use_container_width=True
     )
-    
-    st.plotly_chart(fig, use_container_width=True)
+
+with tab2:
     # Portefeuille
     st.subheader("Composition du Portefeuille")
     
@@ -204,7 +246,7 @@ with tab1:
                 prices[asset] = 1
             else:
                 try:
-                    ticker = exchange.fetch_ticker(f"{asset}/USDT")
+                    ticker = st.session_state.exchange.fetch_ticker(f"{asset}/USDT")
                     prices[asset] = ticker['last']
                 except:
                     prices[asset] = 0
@@ -321,4 +363,3 @@ if st_autorefresh:
     refresh_interval = st.sidebar.slider("Intervalle (secondes)", 5, 60, 15)
     time.sleep(refresh_interval)
     st.experimental_rerun()
-
