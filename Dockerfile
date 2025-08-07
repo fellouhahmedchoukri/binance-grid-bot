@@ -1,13 +1,17 @@
-FROM node:18-alpine
+# Utilise une image légère Python
+FROM python:3.11-slim
 
-WORKDIR /usr/src/app
-COPY package.json package-lock.json* ./
-RUN npm ci --only=production
+WORKDIR /app
 
-COPY src ./src
+# Installe les dépendances
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# bundler envs
-ENV NODE_ENV=production
-EXPOSE 5000
+# Copie le code
+COPY . .
 
-CMD ["node", "src/index.js"]
+# Expose le port configuré
+EXPOSE ${PORT}
+
+# Démarre avec Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "app:app"]
