@@ -1,74 +1,99 @@
+# app.py
+
 from flask import Flask, request, jsonify
-import config
-import exchange_utils
+import os
 import json
 import logging
-import os
+import hmac
+import hashlib
+from dotenv import load_dotenv
+
+import exchange_utils
+import config
+
+# Charger les variables d'environnement
+load_dotenv()
+
+# Configuration du logging
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configuration du logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
-@app.route("/")
+def verify_signature(raw_body: bytes, signature: str, secret: str) -> bool:
+    """
+    Vérifie la signature HMAC SHA256 du payload.
+    """
+    computed = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(computed, signature)
+
+
+@app.route("/", methods=["GET"])
 def home():
     return "<h1>Binance Grid Bot - The Quant Science</h1><p>Service opérationnel</p>"
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        # Parse les données JSON
-        data = request.get_json()
-        if not data:
-            return jsonify({"success": False, "message": "Données JSON invalides"}), 400
-        
-        logger.info(f"Requête reçue: {json.dumps(data, indent=2)}")
-        
-        # Vérification de la passphrase
-        if data.get("passphrase") != config.WEBHOOK_PASSPHRASE:
-            logger.warning("Passphrase invalide reçue")
+        raw_body = request.data
+        signature = request.headers.get("X-Signature", "")
+
+        # Vérification de la signature HMAC
+        if not verify_signature(raw_body, signature, config.WEBHOOK_SECRET):
+            logger.warning("Signature invalide")
+            return jsonify({"success": False, "message": "Signature invalide"}), 401
+
+        # Parser le JSON
+        data = request.get_json(force=True)
+        logger.info(f"Payload reçu: {json.dumps(data, indent=2)}")
+
+        # Validation minimale du schéma
+        for field in ("passphrase", "symbol", "action"):
+            if field not in data:
+                return jsonify({"success": False, "message": f"Champ manquant: {field}"}), 400
+
+        if data["passphrase"] != config.WEBHOOK_PASSPHRASE:
+            logger.warning("Passphrase invalide")
             return jsonify({"success": False, "message": "Passphrase invalide"}), 401
-        
-        # Initialisation de l'API Binance
+
+        symbol = data["symbol"].replace(":", "/")
+        action = data["action"]
+
+        # Initialisation de l'API (Spot ou Futures)
         exchange = exchange_utils.init_exchange()
-        symbol = data['symbol'].replace(":", "/")  # Format: BTC/USDT
-        
-        # Traitement des actions
-        action = data['action']
-        
+
         if action == "entry":
-            # Vérification des paramètres requis
-            if 'high_price' not in data or 'low_price' not in data:
-                return jsonify({
-                    "success": False,
-                    "message": "Paramètres manquants: high_price et low_price requis"
-                }), 400
-                
+            for param in ("high_price", "low_price"):
+                if param not in data:
+                    return jsonify({"success": False, "message": f"Champ manquant: {param}"}), 400
+
             result = exchange_utils.place_grid_orders(
                 exchange,
                 symbol,
-                data['high_price'],
-                data['low_price']
+                data["high_price"],
+                data["low_price"],
+                steps=int(data.get("steps", config.GRID_STEPS)),
             )
-            return jsonify(result)
-        
-        elif action == "exit" or action == "grid_destroyed":
+            return jsonify(result), 200
+
+        elif action in ("exit", "grid_destroyed"):
             result = exchange_utils.close_all_positions(exchange, symbol)
-            return jsonify(result)
-        
+            return jsonify(result), 200
+
         else:
-            return jsonify({
-                "success": False,
-                "message": f"Action non reconnue: {action}"
-            }), 400
-    
+            return jsonify({"success": False, "message": f"Action non reconnue: {action}"}), 400
+
     except Exception as e:
-        logger.error(f"Erreur globale: {str(e)}")
-        return jsonify({
-            "success": False,
-            "message": f"Erreur serveur: {str(e)}"
-        }), 500
+        logger.exception("Erreur serveur")
+        return jsonify({"success": False, "message": f"Erreur serveur: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)  # Port codé en dur
+    port = int(os.getenv("PORT", 5000))
+    debug = os.getenv("FLASK_ENV", "production") == "development"
+    app.run(host="0.0.0.0", port=port, debug=debug)
