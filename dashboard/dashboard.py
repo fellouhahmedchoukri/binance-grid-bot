@@ -1,5 +1,4 @@
 import streamlit as st
-import requests
 from utils import send_webhook, fetch_balance, fetch_open_orders
 
 st.set_page_config(page_title="Binance Grid Bot", layout="wide")
@@ -20,7 +19,7 @@ with tab1:
 
     if st.button("🚀 Exécuter"):
         result = send_webhook(API_URL, PASSPHRASE, symbol, action, high_price, low_price, steps)
-        if result["success"]:
+        if result.get("success"):
             st.success("✅ Webhook envoyé")
         else:
             st.error("❌ Échec")
@@ -37,4 +36,3 @@ with tab3:
     if st.button("🔄 Rafraîchir ordres"):
         orders = fetch_open_orders(API_URL, PASSPHRASE)
         st.json(orders)
-
