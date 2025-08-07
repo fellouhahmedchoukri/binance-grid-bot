@@ -1,101 +1,107 @@
-import ccxt
-import config
-import time
-import logging
+# exchange_utils.py
 
-# Configuration du logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import ccxt
+import logging
+import config
+
 logger = logging.getLogger(__name__)
 
+
 def init_exchange():
-    """Initialise la connexion à Binance"""
-    exchange = ccxt.binance({
-        'apiKey': config.API_KEY,
-        'secret': config.API_SECRET,
-        'enableRateLimit': True,
-        'options': {'defaultType': 'spot'}
-    })
-    
+    """
+    Initialise et retourne une instance CCXT Binance en Spot ou Futures selon la config.
+    """
+    params = {
+        "apiKey": config.API_KEY,
+        "secret": config.API_SECRET,
+        "enableRateLimit": True,
+        "options": {"defaultType": config.EXCHANGE_TYPE},
+    }
+    exchange = ccxt.binance(params)
+
     if config.TEST_MODE:
         exchange.set_sandbox_mode(True)
-        logger.info("MODE TEST ACTIVÉ - Toutes les transactions sont simulées")
-    
+        logger.info("MODE TEST ACTIVÉ - Transactions simulées")
+
     return exchange
 
-def calculate_grid_levels(high_price, low_price):
-    """Calcule les niveaux de la grille selon votre stratégie"""
-    grid_range = float(high_price) - float(low_price)
-    grid_factor = grid_range / 9
-    
-    return {
-        'grid_6': float(high_price) - (grid_factor * 5),
-        'grid_7': float(high_price) - (grid_factor * 6),
-        'grid_8': float(high_price) - (grid_factor * 7),
-        'grid_9': float(high_price) - (grid_factor * 8),
-        'grid_10': float(low_price)
-    }
 
-def place_grid_orders(exchange, symbol, high_price, low_price):
-    """Place les ordres de la grille"""
+def calculate_grid_levels(high: float, low: float, steps: int):
+    """
+    Retourne une liste de 'steps' niveaux linéaires entre high et low.
+    """
+    high, low = float(high), float(low)
+    step_size = (high - low) / steps
+    return [high - i * step_size for i in range(1, steps + 1)]
+
+
+def place_grid_orders(exchange, symbol: str, high_price: float, low_price: float, steps: int):
+    """
+    Place une grille d'ordres limités 'buy' entre high_price et low_price.
+    """
     try:
-        # Calcul des niveaux de grille
-        grid_levels = calculate_grid_levels(high_price, low_price)
-        logger.info(f"Niveaux de grille calculés: {grid_levels}")
-        
-        # Calcul de la taille des positions
+        grid_levels = calculate_grid_levels(high_price, low_price, steps)
+        logger.info(f"Niveaux de grille: {grid_levels}")
+
         balance = exchange.fetch_balance()
-        usdt_balance = balance['USDT']['free']
-        logger.info(f"Solde USDT disponible: {usdt_balance}")
-        
-        # Calcul du montant par position (20% du solde par ordre)
-        position_size_usdt = usdt_balance * 0.20
-        logger.info(f"Montant par position: {position_size_usdt} USDT")
-        
-        # Placement des ordres
-        for i, (level_name, price) in enumerate(grid_levels.items()):
-            # Calcul de la quantité
-            amount = position_size_usdt / price
-            
-            # Création de l'ordre limite
+        usdt_free = balance.get("USDT", {}).get("free", 0)
+        logger.info(f"Solde USDT disponible: {usdt_free}")
+
+        size_per_order = usdt_free * 0.20
+        logger.info(f"Taille par ordre (20% du solde): {size_per_order} USDT")
+
+        placed_orders = []
+        exchange.load_markets()
+        market = exchange.markets[symbol]
+        price_prec = market["precision"]["price"]
+        amount_prec = market["precision"]["amount"]
+
+        for price in grid_levels:
+            rounded_price = exchange.price_to_precision(symbol, price)
+            amount = size_per_order / float(price)
+            rounded_amount = exchange.amount_to_precision(symbol, amount)
+
             order = exchange.create_limit_buy_order(
                 symbol=symbol,
-                amount=exchange.amount_to_precision(symbol, amount),
-                price=exchange.price_to_precision(symbol, price)
+                amount=rounded_amount,
+                price=rounded_price,
             )
-            
-            logger.info(f"Ordre placé: {level_name} | Prix: {price} | Quantité: {amount:.6f} | ID: {order['id']}")
-            
-        return {"success": True, "message": "Grille placée avec succès"}
-    
-    except ccxt.InsufficientFunds as e:
-        logger.error(f"Erreur de fonds insuffisants: {str(e)}")
-        return {"success": False, "message": "Fonds insuffisants"}
-    
-    except Exception as e:
-        logger.error(f"Erreur inattendue: {str(e)}")
-        return {"success": False, "message": f"Erreur: {str(e)}"}
+            logger.info(f"Ordre BUY placé @ {rounded_price} x {rounded_amount} | ID: {order['id']}")
+            placed_orders.append(order)
 
-def close_all_positions(exchange, symbol):
-    """Ferme toutes les positions et annule les ordres"""
+        return {"success": True, "orders": placed_orders}
+
+    except ccxt.InsufficientFunds as e:
+        logger.error(f"Fonds insuffisants: {e}")
+        return {"success": False, "message": "Fonds insuffisants"}
+    except ccxt.InvalidOrder as e:
+        logger.error(f"Ordre invalide: {e}")
+        return {"success": False, "message": "Ordre invalide"}
+    except Exception as e:
+        logger.exception("Erreur place_grid_orders")
+        return {"success": False, "message": str(e)}
+
+
+def close_all_positions(exchange, symbol: str):
+    """
+    Annule tous les ordres et ferme la position ouverte sur symbol.
+    """
     try:
-        # Annulation de tous les ordres ouverts
         exchange.cancel_all_orders(symbol)
         logger.info("Tous les ordres annulés")
-        
-        # Fermeture des positions
+
         balance = exchange.fetch_balance()
-        base_currency = symbol.split('/')[0]
-        
-        if balance.get(base_currency, {}).get('free', 0) > 0:
-            amount = balance[base_currency]['free']
-            exchange.create_market_sell_order(
-                symbol=symbol,
-                amount=exchange.amount_to_precision(symbol, amount)
-            )
-            logger.info(f"Position fermée: {amount} {base_currency}")
-        
-        return {"success": True, "message": "Positions fermées avec succès"}
-    
+        base = symbol.split("/")[0]
+        free_amount = balance.get(base, {}).get("free", 0)
+
+        if free_amount > 0:
+            rounded_amount = exchange.amount_to_precision(symbol, free_amount)
+            order = exchange.create_market_sell_order(symbol, rounded_amount)
+            logger.info(f"Position fermée: {rounded_amount} {base} | ID: {order['id']}")
+            return {"success": True, "order": order}
+
+        return {"success": True, "message": "Aucune position à fermer"}
+
     except Exception as e:
-        logger.error(f"Erreur lors de la fermeture: {str(e)}")
-        return {"success": False, "message": f"Erreur: {str(e)}"}
+        logger.exception("Erreur close_all_positions")
+        return {"success": False, "message": str(e)}
